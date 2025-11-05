@@ -18,7 +18,6 @@ extern "C" {
 void writeStr(int fd, const char *s);
 void writeInt(int fd, int x);
 
-
 // ----------------- small helpers -----------------
 int my_strcmp(const char *a, const char *b) {
     int i = 0;
@@ -53,6 +52,25 @@ void printInt(int x) {
 char toLowerChar(char c) {
     if (c >= 'A' && c <= 'Z') return c - 'A' + 'a';
     return c;
+}
+
+// Provide missing helpers for file writing
+void writeStr(int fd, const char *s) {
+    if (!s) return;
+    write(fd, s, my_strlen(s));
+}
+void writeInt(int fd, int x) {
+    char buf[32]; int i = 0;
+    if (x == 0) buf[i++] = '0';
+    else {
+        int neg = 0; if (x < 0) { neg = 1; x = -x; }
+        char tmp[32]; int j = 0;
+        while (x > 0) { tmp[j++] = '0' + (x % 10); x /= 10; }
+        if (neg) buf[i++] = '-';
+        while (j--) buf[i++] = tmp[j];
+    }
+    buf[i] = 0;
+    write(fd, buf, my_strlen(buf));
 }
 
 // ----------------- Student hierarchy -----------------
@@ -198,30 +216,32 @@ public:
     StudentDB(): arr(0), size(0), cap(0) {}
     ~StudentDB() { for (int i=0;i<size;++i) delete arr[i]; delete [] arr; }
 
-    void saveToCSV(const char *filename = "students.csv") 
+    // Save to a TEXT file (CSV format). Default filename changed to "students.txt".
+    void saveToCSV(const char *filename = "students.txt") 
     {
-    int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, MODE_644);
-    if (fd < 0) return;
+        int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, MODE_644);
+        if (fd < 0) return;
 
-    writeStr(fd, "Name,Roll,Branch,Level,Mark1,Mark2,Mark3\n");
+        writeStr(fd, "Name,Roll,Branch,Level,Mark1,Mark2,Mark3\n");
 
-    for (int i = 0; i < size; i++) {
-        Student* s = arr[i];
-        writeStr(fd, s->getName());  writeStr(fd, ",");
-        writeStr(fd, s->getRoll());  writeStr(fd, ",");
-        writeStr(fd, s->getBranch());writeStr(fd, ",");
-        writeStr(fd, s->getLevel()); writeStr(fd, ",");
-        for (int j = 0; j < 3; j++) {
-            writeInt(fd, s->getMark(j));
-            if (j < 2) writeStr(fd, ",");
+        for (int i = 0; i < size; i++) {
+            Student* s = arr[i];
+            writeStr(fd, s->getName());  writeStr(fd, ",");
+            writeStr(fd, s->getRoll());  writeStr(fd, ",");
+            writeStr(fd, s->getBranch());writeStr(fd, ",");
+            writeStr(fd, s->getLevel()); writeStr(fd, ",");
+            for (int j = 0; j < 3; j++) {
+                writeInt(fd, s->getMark(j));
+                if (j < 2) writeStr(fd, ",");
+            }
+            writeStr(fd, "\n");
         }
-        writeStr(fd, "\n");
+
+        close(fd);
     }
 
-    close(fd);
-    }
-
-    void loadFromCSV(const char *filename = "students.csv") 
+    // Load from TEXT file (CSV format). Default filename changed to "students.txt".
+    void loadFromCSV(const char *filename = "students.txt") 
     {
         int fd = open(filename, O_RDONLY, MODE_644);
         if (fd < 0) return; // file may not exist yet
@@ -354,14 +374,7 @@ public:
         if (outSize == size) {
             for (int i=0;i<size;++i) arr[i] = out[i];
         } else {
-            // merge: fill arr with those in out, then remaining ones not in out in original order
-            int filled = 0;
-            for (int i=0;i<outSize;++i) arr[filled++] = out[i];
-            for (int i=0;i<size;++i) {
-                bool found = false;
-                for (int j=0;j<outSize;++j) if (arr[filled-1] == out[j]) { found = true; break; } // not reliable
-            }
-            // To keep it simple: if mismatch, do nothing (stable as-is)
+            // mismatch: keep original order (no-op)
         }
         delete [] out;
         trieFree(root);
@@ -458,7 +471,7 @@ Student* createStudentInteractive() {
 // ----------------- main menu -----------------
 int main() {
     StudentDB db;
-    db.loadFromCSV();
+    db.loadFromCSV(); // loads from students.txt if present
     char buf[128];
 
     while (1) {
@@ -480,6 +493,7 @@ int main() {
             Student* s = createStudentInteractive();
             db = db + s;
             ::print("Added.\n");
+            db.saveToCSV(); // autosave after add
         } else if (c == 2) {
             ::print("Enter roll to modify: ");
             readLine(buf, 128);
@@ -492,18 +506,18 @@ int main() {
                 int ch = my_atoi(buf);
                 if (ch == 1) {
                     ::print("Enter new name: "); readLine(buf,128);
-                    try { validateNameOrThrow(buf); s->setName(buf); ::print("Name updated.\n"); }
+                    try { validateNameOrThrow(buf); s->setName(buf); ::print("Name updated.\n"); db.saveToCSV(); }
                     catch (BufferOverflowException &e) { ::print(e.what()); ::print("\n"); }
                     catch (NoSecondNameException &e) { ::print(e.what()); ::print("\n"); }
                     catch (InvalidNameCharacterException &e) { ::print(e.what()); ::print("\n"); }
                 } else if (ch == 2) {
                     ::print("Enter new roll: "); readLine(buf,128);
-                    try { validateRollOrThrow(buf); s->setRoll(buf); ::print("Roll updated.\n"); }
+                    try { validateRollOrThrow(buf); s->setRoll(buf); ::print("Roll updated.\n"); db.saveToCSV(); }
                     catch (BufferOverflowException &e) { ::print(e.what()); ::print("\n"); }
                     catch (InvalidRollNumberException &e) { ::print(e.what()); ::print("\n"); }
                 } else if (ch == 3) {
                     ::print("Enter new branch (CSE/ECE): "); readLine(buf,128);
-                    if (my_strcmp(buf,"CSE")==0 || my_strcmp(buf,"ECE")==0) { s->setBranch(buf); ::print("Branch updated.\n"); }
+                    if (my_strcmp(buf,"CSE")==0 || my_strcmp(buf,"ECE")==0) { s->setBranch(buf); ::print("Branch updated.\n"); db.saveToCSV(); }
                     else ::print("Invalid branch.\n");
                 } else if (ch == 4) {
                     // replace object type preserving roll/name/branch/marks
@@ -517,7 +531,7 @@ int main() {
                     if (my_strcmp(buf,"BTECH")==0) newS = new BTechStudent(oldRoll, oldName, oldBranch, oldMarks);
                     else if (my_strcmp(buf,"MTECH")==0) newS = new MTechStudent(oldRoll, oldName, oldBranch, oldMarks);
                     else if (my_strcmp(buf,"PHD")==0) newS = new PhDStudent(oldRoll, oldName, oldBranch, oldMarks);
-                    if (newS) { db.replaceByRoll(oldRoll, newS); s = newS; ::print("Level changed.\n"); }
+                    if (newS) { db.replaceByRoll(oldRoll, newS); s = newS; ::print("Level changed.\n"); db.saveToCSV(); }
                     else ::print("Invalid level.\n");
                 } else if (ch == 5) {
                     ::print("Enter component index (0..2): "); readLine(buf,128);
@@ -525,14 +539,14 @@ int main() {
                     if (idx < 0 || idx > 2) { ::print("Invalid index.\n"); continue; }
                     ::print("Enter new mark (0-100): "); readLine(buf,128);
                     int m = my_atoi(buf);
-                    try { validateMarkOrThrow(m); s->setMark(idx,m); ::print("Mark updated.\n"); }
+                    try { validateMarkOrThrow(m); s->setMark(idx,m); ::print("Mark updated.\n"); db.saveToCSV(); }
                     catch (InvalidMarkException &e) { ::print(e.what()); ::print("\n"); }
                 } else if (ch == 6) break;
                 else ::print("Invalid\n");
             }
         } else if (c == 3) {
             ::print("Enter roll to delete: "); readLine(buf,128);
-            db.removeByRoll(buf); ::print("If existed, removed.\n");
+            db.removeByRoll(buf); ::print("If existed, removed.\n"); db.saveToCSV();
         } else if (c == 4) {
             db.printAll();
         } else if (c == 5) {
@@ -546,6 +560,7 @@ int main() {
         } else if (c == 8) {
             db.sortByNameTrie(); ::print("Sorted by name via trie.\n");
         } else if (c == 9) {
+            db.saveToCSV(); // final save on exit
             ::print("Exiting.\n"); break;
         } else ::print("Invalid choice.\n");
     }
